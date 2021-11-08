@@ -81,9 +81,12 @@ def upload_products(client, config):
 
         if p.get("tags"):
             sp.tags = p["tags"]
-        
+
         if p.get("images"):
             sp.images = p["images"]
+
+        if p.get("variants"):
+            sp.variants = p["variants"]
 
         # Write to shopify
         success = sp.save()

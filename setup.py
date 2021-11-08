@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name='target-shopify',
-    version='1.0.0',
+    version='0.0.1',
     description='hotglue target for exporting data to Shopify API',
     author='hotglue',
     url='https://hotglue.xyz',
