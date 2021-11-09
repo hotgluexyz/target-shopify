@@ -86,7 +86,21 @@ def upload_products(client, config):
             sp.images = p["images"]
 
         if p.get("variants"):
-            sp.variants = p["variants"]
+            variants = []
+
+            for v in p["variants"]:
+                # Create Shopify variant
+                variant = shopify.Variant()
+
+                for key in v:
+                    # Add the attributes to Shopify variant
+                    setattr(variant, key, v[key])
+
+                # Append new variant to the list
+                variants.append(variant)
+
+            # Set the variant to Shopify product
+            sp.variants = variants
 
         # Write to shopify
         success = sp.save()
