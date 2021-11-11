@@ -62,6 +62,11 @@ def upload_products(client, config):
     input_path = f"{config['input_path']}/products.json"
     # Read the products
     products = load_json(input_path)
+    # Get locations
+    res = shopify.GraphQL().execute("{ location { id } }")
+    locations = json.loads(res)
+    location = locations["data"]["location"]["id"]
+    lid = location.split("gid://shopify/Location/")[1]
 
     for p in products:
         # Create a new product
@@ -104,6 +109,21 @@ def upload_products(client, config):
 
         # Write to shopify
         success = sp.save()
+
+        if p.get("variants"):
+            for v in p["variants"]:
+                if "inventory_quantity" not in v:
+                    pass
+
+                # Get inventory_item_id
+                variant = next((x for x in sp.variants if x.title == v['title']), None)
+                logger.info(variant)
+                iid = variant.inventory_item_id
+
+                # Create inventory level
+                il = shopify.InventoryLevel()
+
+                il.set(lid, iid, v["inventory_quantity"])
 
 
 def upload(client, config):
