@@ -4,6 +4,8 @@ import json
 import argparse
 import logging
 
+from pyactiveresource.connection import ResourceNotFound
+
 import shopify
 
 logger = logging.getLogger("target-shopify")
@@ -24,13 +26,6 @@ def parse_args():
     Parses the command-line arguments mentioned in the SPEC and the
     BEST_PRACTICES documents:
     -c,--config     Config file
-    -s,--state      State file
-    -d,--discover   Run in discover mode
-    -p,--properties Properties file: DEPRECATED, please use --catalog instead
-    --catalog       Catalog file
-    Returns the parsed args object from argparse. For each argument that
-    point to JSON files (config, state, properties), we will automatically
-    load and parse the JSON file.
     '''
     parser = argparse.ArgumentParser()
 
@@ -126,12 +121,58 @@ def upload_products(client, config):
                 il.set(lid, iid, v["inventory_quantity"])
 
 
+def update_product(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/update_product.json"
+    # Read the products
+    products = load_json(input_path)
+    location = shopify.Location.find()[0]
+    
+    for p in products:
+        # Get the product
+        product_id = p.get('id')
+        try:
+            product = shopify.Product.find(product_id)
+        except ResourceNotFound:
+            logger.warning(f"{product_id} is not an valid product id")
+            continue
+
+        for k in p.keys():
+            if k in ['title', 'handle', 'body_html', 'vendor', 'product_type']:
+                setattr(product, k, p[k])
+
+        for v in p.get("variants"):
+            variant_id = v.get('id')
+            try:
+                variant = shopify.Variant.find(variant_id)
+            except ResourceNotFound:
+                logger.warning(f"{variant_id} is not an valid variant id")
+                continue
+
+            for k in v.keys():
+                if k in ['price', 'title']:
+                    setattr(variant, k, v[k])
+
+                if k=='inventory_quantity':
+                    shopify.InventoryLevel.set(location.id, variant.inventory_item_id, v['inventory_quantity'])
+            if not variant.save():
+                logger.warning(f"Error updating {variant.id} variant.")
+        
+        if not product.save():
+            logger.warning(f"Error updating {product.id}.")
+
+
 def upload(client, config):
     # Upload Products
     if os.path.exists(f"{config['input_path']}/products.json"):
         logger.info("Found products.json, uploading...")
         upload_products(client, config)
         logger.info("products.json uploaded!")
+
+    if os.path.exists(f"{config['input_path']}/update_product.json"):
+        logger.info("Found update_product.json, uploading...")
+        update_product(client, config)
+        logger.info("update_product.json uploaded!")
 
     logger.info("Posting process has completed!")
 
