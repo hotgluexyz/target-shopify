@@ -141,7 +141,11 @@ def update_product(client, config):
             if k in ['title', 'handle', 'body_html', 'vendor', 'product_type']:
                 setattr(product, k, p[k])
 
-        for v in p.get("variants"):
+        if not p.get("variants"):
+            id = product.variants[0].id
+            quantity = p["inventory_quantity"]
+            p["variants"] = [{"id": id, "inventory_quantity": quantity}]
+        for v in p["variants"]:
             variant_id = v.get('id')
             try:
                 variant = shopify.Variant.find(variant_id)
@@ -154,12 +158,43 @@ def update_product(client, config):
                     setattr(variant, k, v[k])
 
                 if k=='inventory_quantity':
-                    shopify.InventoryLevel.set(location.id, variant.inventory_item_id, v['inventory_quantity'])
+                    shopify.InventoryLevel.set(location.id, variant.inventory_item_id, v[k])
             if not variant.save():
                 logger.warning(f"Error updating {variant.id} variant.")
         
         if not product.save():
             logger.warning(f"Error updating {product.id}.")
+
+
+def update_inventory(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/update_inventory.json"
+    # Read the products
+    products = load_json(input_path)
+    location = shopify.Location.find()[0]
+    variants = shopify.Variant.find()
+    
+    for product in products:
+        sku = product.get('sku')
+        variant = [v for v in variants if v.sku==sku]
+        if not variant:
+            logger.info(f"{sku} is not valid.")
+            continue
+        variant_id = variant[0].id
+        try:
+            variant = shopify.Variant.find(variant_id)
+        except ResourceNotFound:
+            logger.warning(f"{variant_id} is not an valid variant id")
+            continue
+
+        for k in product.keys():
+            if k in ['price', 'title']:
+                setattr(variant, k, product[k])
+
+            if k=='inventory_quantity':
+                shopify.InventoryLevel.set(location.id, variant.inventory_item_id, product[k])
+        if not variant.save():
+            logger.warning(f"Error updating {variant.id} variant.")
 
 
 def upload(client, config):
@@ -173,6 +208,11 @@ def upload(client, config):
         logger.info("Found update_product.json, uploading...")
         update_product(client, config)
         logger.info("update_product.json uploaded!")
+
+    if os.path.exists(f"{config['input_path']}/update_inventory.json"):
+        logger.info("Found update_inventory.json, uploading...")
+        update_inventory(client, config)
+        logger.info("update_inventory.json uploaded!")
 
     logger.info("Posting process has completed!")
 
