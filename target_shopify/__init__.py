@@ -143,8 +143,8 @@ def update_product(client, config):
 
         if not p.get("variants"):
             id = product.variants[0].id
-            quantity = p["inventory_quantity"]
-            p["variants"] = [{"id": id, "inventory_quantity": quantity}]
+            quantity = p["update_quantity"]
+            p["variants"] = [{"id": id, "update_quantity": quantity}]
         for v in p["variants"]:
             variant_id = v.get('id')
             try:
@@ -157,7 +157,7 @@ def update_product(client, config):
                 if k in ['price', 'title']:
                     setattr(variant, k, v[k])
 
-                if k=='inventory_quantity':
+                if k=='update_quantity':
                     shopify.InventoryLevel.set(location.id, variant.inventory_item_id, v[k])
             if not variant.save():
                 logger.warning(f"Error updating {variant.id} variant.")
@@ -191,8 +191,9 @@ def update_inventory(client, config):
             if k in ['price', 'title']:
                 setattr(variant, k, product[k])
 
-            if k=='inventory_quantity':
-                shopify.InventoryLevel.set(location.id, variant.inventory_item_id, product[k])
+            if k=='update_quantity':
+                response = shopify.InventoryLevel.adjust(location.id, variant.inventory_item_id, product[k])
+                logger.info(f"{sku} updated at {response.updated_at}")
         if not variant.save():
             logger.warning(f"Error updating {variant.id} variant.")
 
