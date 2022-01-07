@@ -192,7 +192,8 @@ def update_inventory(client, config):
                 setattr(variant, k, product[k])
 
             if k=='inventory_quantity':
-                shopify.InventoryLevel.set(location.id, variant.inventory_item_id, product[k])
+                response = shopify.InventoryLevel.adjust(location.id, variant.inventory_item_id, product[k])
+                logger.info(f"{sku} updated at {response.updated_at}")
         if not variant.save():
             logger.warning(f"Error updating {variant.id} variant.")
 
