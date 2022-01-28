@@ -3,6 +3,7 @@ import os
 import json
 import argparse
 import logging
+import requests
 
 from pyactiveresource.connection import ResourceNotFound
 
@@ -198,6 +199,21 @@ def update_inventory(client, config):
             logger.warning(f"Error updating {variant.id} variant.")
 
 
+def upload_order(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/orders.json"
+    
+    # Read the orders
+    orders = load_json(input_path)
+    url = shopify.ShopifyResource.url
+    headers = shopify.ShopifyResource.get_headers()
+    headers["Content-Type"] = "application/json"
+
+    for order in orders:
+        post_url = f"https://{url}/admin/api/2021-10/orders.json"
+        requests.post(post_url, headers=headers, json=order)
+
+
 def upload(client, config):
     # Upload Products
     if os.path.exists(f"{config['input_path']}/products.json"):
@@ -214,6 +230,11 @@ def upload(client, config):
         logger.info("Found update_inventory.json, uploading...")
         update_inventory(client, config)
         logger.info("update_inventory.json uploaded!")
+    
+    if os.path.exists(f"{config['input_path']}/orders.json"):
+        logger.info("Found orders.json, uploading...")
+        upload_order(client, config)
+        logger.info("orders.json uploaded!")
 
     logger.info("Posting process has completed!")
 
