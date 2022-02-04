@@ -9,7 +9,7 @@ from pyactiveresource.connection import ResourceNotFound
 import shopify
 
 logger = logging.getLogger("target-shopify")
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 def load_json(path):
     with open(path) as f:
@@ -50,6 +50,47 @@ def initialize_shopify_client(config):
     shopify.ShopifyResource.activate_session(session)
     # Shop.current() makes a call for shop details with provided shop and api_key
     return shopify.Shop.current().attributes
+
+
+def upload_orders(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/orders.json"
+    # Read the orders
+    orders = load_json(input_path)
+    # Get variants
+    variants = shopify.Variant.find()
+
+    for o in orders:
+        # Create a new order
+        so = shopify.Order()
+        lines = []
+
+        # Get line items
+        for li in o["line_items"]:
+            # Get SKU
+            sku = li["sku"]
+            # Get matching variant
+            variant = [v for v in variants if v.sku==sku]
+
+            if not variant:
+                logger.info(f"{sku} is not valid.")
+                continue
+
+            variant_id = variant[0].id
+
+            sl = shopify.LineItem()
+            # Set variant id
+            sl.variant_id = variant_id
+            # Set quantity
+            sl.quantity = li["quantity"]
+
+            lines.append(sl)
+
+        # Save line items
+        so.line_items = lines
+
+        # Write to shopify
+        success = so.save()
 
 
 def upload_products(client, config):
@@ -204,6 +245,12 @@ def upload(client, config):
         logger.info("Found products.json, uploading...")
         upload_products(client, config)
         logger.info("products.json uploaded!")
+
+    # Upload Orders
+    if os.path.exists(f"{config['input_path']}/orders.json"):
+        logger.info("Found orders.json, uploading...")
+        upload_orders(client, config)
+        logger.info("orders.json uploaded!")
 
     if os.path.exists(f"{config['input_path']}/update_product.json"):
         logger.info("Found update_product.json, uploading...")
