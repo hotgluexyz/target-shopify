@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 import os
 import json
+import sys
 import argparse
 import logging
+import backoff
+import simplejson
+import math
 
 from pyactiveresource.connection import ResourceNotFound
+import pyactiveresource
 
 import shopify
 
+logging.getLogger('backoff').setLevel(logging.CRITICAL)
 logger = logging.getLogger("target-shopify")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+MAX_RETRIES = 10
 
 def load_json(path):
     with open(path) as f:
@@ -19,6 +27,37 @@ def load_json(path):
 def write_json_file(filename, content):
     with open(filename, 'w') as f:
         json.dump(content, f, indent=4)
+
+
+def is_not_status_code_fn(status_code):
+    def gen_fn(exc):
+        if getattr(exc, 'code', None) and exc.code not in status_code:
+            return True
+        # Retry other errors up to the max
+        return False
+    return gen_fn
+
+
+def leaky_bucket_handler(details):
+    logger.info("Received 429 -- sleeping for %s seconds",
+                details['wait'])
+
+
+def retry_handler(details):
+    logger.info("Received 500 or retryable -- Retry %s/%s",
+                details['tries'], MAX_RETRIES)
+
+
+def retry_after_wait_gen(**kwargs):
+    # This is called in an except block so we can retrieve the exception
+    # and check it.
+    exc_info = sys.exc_info()
+    resp = exc_info[1].response
+    # Retry-After is an undocumented header. But honoring
+    # it was proven to work in our spikes.
+    # It's been observed to come through as lowercase, so fallback if not present
+    sleep_time_str = resp.headers.get('Retry-After', resp.headers.get('retry-after'))
+    yield math.floor(float(sleep_time_str))
 
 
 def parse_args():
@@ -50,6 +89,21 @@ def initialize_shopify_client(config):
     shopify.ShopifyResource.activate_session(session)
     # Shop.current() makes a call for shop details with provided shop and api_key
     return shopify.Shop.current().attributes
+
+
+@backoff.on_exception(backoff.expo,
+                        (pyactiveresource.connection.ServerError,
+                        pyactiveresource.formats.Error,
+                        simplejson.scanner.JSONDecodeError,
+                        Exception),
+                        on_backoff=retry_handler,
+                        max_tries=MAX_RETRIES)
+@backoff.on_exception(retry_after_wait_gen,
+                        pyactiveresource.connection.ClientError,
+                        giveup=is_not_status_code_fn([429]),
+                        on_backoff=leaky_bucket_handler)
+def insert_record(obj):
+    return obj.save()
 
 
 def upload_orders(client, config):
@@ -90,7 +144,7 @@ def upload_orders(client, config):
         so.line_items = lines
 
         # Write to shopify
-        success = so.save()
+        success = insert_record(so)
 
 
 def upload_products(client, config):
@@ -144,7 +198,7 @@ def upload_products(client, config):
             sp.variants = variants
 
         # Write to shopify
-        success = sp.save()
+        success = insert_record(sp)
 
         if p.get("variants"):
             for v in p["variants"]:
@@ -200,11 +254,11 @@ def update_product(client, config):
 
                 if k=='inventory_quantity':
                     shopify.InventoryLevel.set(location.id, variant.inventory_item_id, v[k])
-            if not variant.save():
-                logger.warning(f"Error updating {variant.id} variant.")
+            if not insert_record(variant):
+                logger.warning(f"Failed on updating {variant.id} variant.")
         
-        if not product.save():
-            logger.warning(f"Error updating {product.id}.")
+        if not insert_record(product):
+            logger.warning(f"Failed on updating {product.id}.")
 
 
 def update_inventory(client, config):
@@ -235,8 +289,8 @@ def update_inventory(client, config):
             if k=='inventory_quantity':
                 response = shopify.InventoryLevel.adjust(location.id, variant.inventory_item_id, product[k])
                 logger.info(f"{sku} updated at {response.updated_at}")
-        if not variant.save():
-            logger.warning(f"Error updating {variant.id} variant.")
+        if not insert_record(variant):
+            logger.warning(f"Failed on updating {variant.id} variant.")
 
 
 def upload(client, config):
