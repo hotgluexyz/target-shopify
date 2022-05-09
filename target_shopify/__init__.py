@@ -17,7 +17,7 @@ logging.getLogger('backoff').setLevel(logging.CRITICAL)
 logger = logging.getLogger("target-shopify")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-MAX_RETRIES = 10
+MAX_RETRIES = 5
 
 def load_json(path):
     with open(path) as f:
@@ -293,7 +293,28 @@ def update_inventory(client, config):
             logger.warning(f"Failed on updating {variant.id} variant.")
 
 
+def update_fulfillments(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/update_fulfillments.json"
+    # Read the products
+    fulfillments = load_json(input_path)
+
+    for fulfillment in fulfillments:
+        ff = shopify.Fulfillment.find(order_id=fulfillment.get("order_id"))
+        for item in ff:
+            if item.status!="cancelled":
+                ff_event = shopify.FulfillmentEvent({'order_id': item.order_id, 'fulfillment_id': item.id})
+                ff_event.status = fulfillment.get("shipment_status")
+                if not insert_record(ff_event):
+                    logger.warning(f"Failed on updating {item.id} fulfillment.")
+
 def upload(client, config):
+    # Update Fulfillment
+    if os.path.exists(f"{config['input_path']}/update_fulfillments.json"):
+        logger.info("Found update_fulfillments.json, uploading...")
+        update_fulfillments(client, config)
+        logger.info("update_fulfillments.json uploaded!")
+
     # Upload Products
     if os.path.exists(f"{config['input_path']}/products.json"):
         logger.info("Found products.json, uploading...")
