@@ -308,7 +308,27 @@ def update_fulfillments(client, config):
                 if not insert_record(ff_event):
                     logger.warning(f"Failed on updating {item.id} fulfillment.")
 
+
+def fulfill_order(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/fulfill_order.json"
+    # Read the products
+    fulfillments = load_json(input_path)
+
+    for fulfillment in fulfillments:
+        ff = shopify.Fulfillment(fulfillment)
+        if not insert_record(ff):
+            logger.warning(f"Failed on updating {fulfillment.order_id} fulfillment.")
+
+
 def upload(client, config):
+
+    # Create Fulfillment
+    if os.path.exists(f"{config['input_path']}/fulfill_order.json"):
+        logger.info("Found fulfill_order.json, uploading...")
+        fulfill_order(client, config)
+        logger.info("fulfill_order.json uploaded!")
+
     # Update Fulfillment
     if os.path.exists(f"{config['input_path']}/update_fulfillments.json"):
         logger.info("Found update_fulfillments.json, uploading...")
