@@ -315,6 +315,37 @@ def fulfill_order(client, config):
             logger.warning(f"Failed on updating {fulfillment.order_id} fulfillment.")
 
 
+def upload_refunds(client, config):
+    # Get input path
+    input_path = f"{config['input_path']}/refunds.json"
+
+    # Read the refunds
+    refunds = load_json(input_path)
+    for refund in refunds:
+
+        if "refund_line_items" not in refund:
+            refund["refund_line_items"] = []
+        if "shipping" not in refund:
+            refund["shipping"] = None   
+        ro = shopify.Refund(refund)
+        refund_calculations = shopify.Refund.calculate(order_id=refund["order_id"],refund_line_items = refund["refund_line_items"],shipping=refund["shipping"])
+        refund_calculations = refund_calculations.__dict__
+        shipping = refund_calculations["attributes"]["shipping"].__dict__["attributes"]
+        currency = refund_calculations["attributes"]["currency"]
+        transactions_calculated = refund_calculations["attributes"]["transactions"]
+        transactions = []
+        for transaction in transactions_calculated:
+            t = transaction.__dict__["attributes"]
+            t["amount"] = t["maximum_refundable"]
+            t["kind"] = "refund"
+            transactions.append(t)
+        shipping["amount"] = shipping["maximum_refundable"]   
+        refund_payload = {"order_id":refund["order_id"],"currency":currency,"shipping":shipping,"transactions":transactions}
+        refund_payload = shopify.Refund(refund_payload)
+        if not insert_record(refund_payload):
+            logger.warning(f"Failed on uploading refund for order ID: {refund['order_id']} .")
+
+
 def upload(client, config):
 
     # Create Fulfillment
@@ -350,6 +381,12 @@ def upload(client, config):
         logger.info("Found update_inventory.json, uploading...")
         update_inventory(client, config)
         logger.info("update_inventory.json uploaded!")
+
+    # Upload refunds
+    if os.path.exists(f"{config['input_path']}/refunds.json"):
+        logger.info("Found refunds.json, uploading...")
+        upload_refunds(client, config)
+        logger.info("refunds.json uploaded!")    
 
     logger.info("Posting process has completed!")
 
