@@ -266,16 +266,10 @@ def update_inventory(client, config):
     input_path = f"{config['input_path']}/update_inventory.json"
     # Read the products
     products = load_json(input_path)
-    location = shopify.Location.find()[0]
-    variants = shopify.Variant.find()
     
     for product in products:
-        sku = product.get('sku')
-        variant = [v for v in variants if v.sku==sku]
-        if not variant:
-            logger.info(f"{sku} is not valid.")
-            continue
-        variant_id = variant[0].id
+        variant_id = product.get('variant_id')
+        location_id = product.get('location_id')
         try:
             variant = shopify.Variant.find(variant_id)
         except ResourceNotFound:
@@ -287,10 +281,10 @@ def update_inventory(client, config):
                 setattr(variant, k, product[k])
 
             if k=='inventory_quantity':
-                response = shopify.InventoryLevel.adjust(location.id, variant.inventory_item_id, product[k])
-                logger.info(f"{sku} updated at {response.updated_at}")
+                response = shopify.InventoryLevel.adjust(location_id, variant.inventory_item_id, product[k])
+                logger.info(f"Variant: {variant_id} at location: {variant_id} updated at {response.updated_at}")
         if not insert_record(variant):
-            logger.warning(f"Failed on updating {variant.id} variant.")
+            logger.warning(f"Failed on updating variant: {variant_id}")
 
 
 def update_fulfillments(client, config):
