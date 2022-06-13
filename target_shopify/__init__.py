@@ -106,13 +106,20 @@ def insert_record(obj):
     return obj.save()
 
 
+def get_variant_by_sku(sku):
+    gql_client = shopify.GraphQL()
+    gql_query = "query productVariants($query:String!){productVariants(first:1, query:$query){edges{node{id}}}}"
+    response = gql_client.execute(gql_query, dict(query=f"sku:{sku}"))
+    response = json.loads(response)
+    gid = response["data"]["productVariants"]["edges"][0]["node"]["id"]
+    return gid.split("/")[-1]
+
+
 def upload_orders(client, config):
     # Get input path
     input_path = f"{config['input_path']}/orders.json"
     # Read the orders
     orders = load_json(input_path)
-    # Get variants
-    variants = shopify.Variant.find()
 
     for o in orders:
         # Create a new order
@@ -121,20 +128,22 @@ def upload_orders(client, config):
 
         # Get line items
         for li in o["line_items"]:
-            # Get SKU
-            sku = li["sku"]
-            # Get matching variant
-            variant = [v for v in variants if v.sku==sku]
-
+            
+            variant = li.get("variant_id")
+            
             if not variant:
-                logger.info(f"{sku} is not valid.")
-                continue
-
-            variant_id = variant[0].id
+                # Get SKU
+                sku = li["sku"]
+                # Get matching variant
+                try:
+                    variant = get_variant_by_sku(sku)
+                except:
+                    logger.info(f"{sku} is not valid.")
+                    continue
 
             sl = shopify.LineItem()
             # Set variant id
-            sl.variant_id = variant_id
+            sl.variant_id = variant
             # Set quantity
             sl.quantity = li["quantity"]
 
@@ -144,7 +153,8 @@ def upload_orders(client, config):
         so.line_items = lines
 
         # Write to shopify
-        success = insert_record(so)
+        if not insert_record(so):
+            logger.warning(f"Failed creating order.")
 
 
 def upload_products(client, config):
